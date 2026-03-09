@@ -18,6 +18,11 @@ Completed:
 - My Architecture is implemented
 - It has ... results
 
+### Training Pipeline
+
+
+- https://www.kaggle.com/code/alanjacobperry/steel-defect-segmentation-unet/edit
+
 
 ### Create Environment
 ---

@@ -1,0 +1,36 @@
+volumes:
+    config:
+
+
+services:
+
+    loopr:
+        container_name: loopr
+        shm_size: 2g
+        build:
+            context: .
+        command: uv run fastapi run
+        user: 0:0
+        # ports:
+        #     - 8000:8000
+        environment:
+            PASSWORD: ${PASSWORD}
+        volumes:
+            - "./src:/app/src"
+            - "./pyproject.toml:/app/pyproject.toml"
+        labels:
+          - "tsdproxy.enable=true"
+    
+    tsdproxy:
+        container_name: tsdproxy
+        image: almeidapaulopt/tsdproxy:1
+        depends_on: 
+          - loopr
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+          - ./data:/data
+          - ./config:/config
+        restart: unless-stopped
+
+        extra_hosts:
+          - "host.docker.internal:host-gateway"
