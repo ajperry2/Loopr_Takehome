@@ -1,36 +1,51 @@
 volumes:
     config:
 
+networks:
+  tailscale:
+        driver: bridge
 
 services:
 
     loopr:
         container_name: loopr
-        shm_size: 2g
+        hostname: loopr
         build:
             context: .
-        command: uv run fastapi run
+        command: uv run fastapi dev --host 0.0.0.0
         user: 0:0
-        # ports:
-        #     - 8000:8000
+        ports:
+            - 8000:8000
         environment:
             PASSWORD: ${PASSWORD}
+            TSNET_FORCE_LOGIN: 1
         volumes:
             - "./src:/app/src"
             - "./pyproject.toml:/app/pyproject.toml"
         labels:
-          - "tsdproxy.enable=true"
-    
+            - "tsdproxy.enable=true"
+            - "tsdproxy.funnel=true"
+            - "tsdproxy.name=loopr"
+        networks:
+        - tailscale
+        deploy:
+          resources:
+            reservations:
+              devices:
+                - driver: nvidia
+                  count: 1
+                  capabilities: [gpu]
     tsdproxy:
         container_name: tsdproxy
-        image: almeidapaulopt/tsdproxy:1
-        depends_on: 
-          - loopr
+        image: almeidapaulopt/tsdproxy:2
         volumes:
           - /var/run/docker.sock:/var/run/docker.sock
           - ./data:/data
           - ./config:/config
         restart: unless-stopped
-
         extra_hosts:
           - "host.docker.internal:host-gateway"
+        ports:
+          - "8080:8080"
+        networks:
+        - tailscale

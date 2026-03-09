@@ -49,10 +49,7 @@ def train_neural_net():
                               num_workers=TrainingNNConfig.num_workers, pin_memory=True)
     # Loss / Opt.
     pos_weight = torch.ones([4]).cuda()  # All weights are equal to 1
-    pos_weight[0] = 1-95/141
-    pos_weight[1] = 1-7/141
-    pos_weight[2] = 1-30/141
-    pos_weight[3] = 1-9/141
+
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = Adam(
         mlp.parameters(), 
@@ -75,6 +72,7 @@ def train_neural_net():
         print(f"epoch: {epoch}")
         train_loss_total = 0
         train_num_batches = 0
+        mlp.train()
         for images, dense_classes, metas in train_loader:
             classes = torch.nn.functional.one_hot(dense_classes, num_classes=4).float().to('cuda')
             embeddings = unet_model.encode(images.cuda())
@@ -108,7 +106,6 @@ def train_neural_net():
             )
             num_val_batches += 1
             val_score += score
-    
         val_losses.append(val_loss/ num_val_batches)
         val_scores.append(val_score / num_val_batches)
         print(f"Train Loss (BCE + lambda * L2): {train_loss_total / train_num_batches}")

@@ -7,6 +7,7 @@ from collections import defaultdict
 import numpy as np
 import cv2
 import torch
+import random
 
 from loopr.config.training_nn import TrainingNNConfig
 
@@ -19,7 +20,7 @@ class ClassificationDataset(Dataset):
         training=True, 
         train_split = 0.8, 
         censor_files = False, 
-        limited_classes = []
+        limited_classes = dict(), crop = True
     ):
         defect_image_dir = data_dir / "Defect_images"
         mask_image_dir = data_dir / "Mask_images"
@@ -35,6 +36,7 @@ class ClassificationDataset(Dataset):
         all_files = [file for file in all_files if self.file_has_mask_file(file)]
         self.all_is_file_defect = [True for i in range( len(all_files))]
         all_files += [path for path in self.no_defect_dir.glob("**/*.png")]
+        self.crop = crop
         
         self.all_is_file_defect += [False for path in self.no_defect_dir.glob("**/*.png")]
         
@@ -49,8 +51,14 @@ class ClassificationDataset(Dataset):
             if self.all_is_file_defect[i] and class_label not in TrainingNNConfig.kept_classes:
                 hash_value = 1.0
                 
-            if len(limited_classes)>0 and class_label in limited_classes and counts[self.all_classes.index(class_label)+1] > 0: 
-                continue
+            if len(limited_classes)>0 and class_label in limited_classes : 
+
+                if class_label in self.all_classes:
+                    if counts[self.all_classes.index(class_label)+1] > limited_classes[class_label]:
+                        continue
+                else:
+                    if counts[0] > limited_classes[0]:
+                        continue
             part_of_dataset = (
                 (hash_value < train_split and training) 
                 or (hash_value >= train_split and not training)
@@ -97,25 +105,31 @@ class ClassificationDataset(Dataset):
             img = torch.from_numpy(img.transpose(2,0,1)).float()
 
         # Crop around mask
-
-        if self.file_has_mask_file(image_file):
-            mask = cv2.imread(str(self.file_to_mask_file(image_file)), cv2.IMREAD_GRAYSCALE)
-            mask = mask != 0
-            x, y = np.where(mask)
-            x_cen = x.mean()
-            x_cen += int(np.random.randn() * TrainingNNConfig.width/2)
-            
-            x_start = min(max(0, x_cen - TrainingNNConfig.width/2), img.shape[2]-TrainingNNConfig.width)
-            print(x_start)
-            x_end = x_start + TrainingNNConfig.width
-            print(x_end)
-            img = img[:,:,x_start:x_end]
-        else:
-            x, y = np.where(mask)
-            x_start = np.random.randn() * (img.shape[2]-TrainingNNConfig.width)
-            x_end = x_start + TrainingNNConfig.width
-            img = img[:,:,x_start:x_end]
-            
+        sample_choice = random.uniform(0, 1) < 0.7
+        if self.crop:
+            if self.file_has_mask_file(image_file) and sample_choice:
+                mask = cv2.imread(str(self.file_to_mask_file(image_file)), cv2.IMREAD_GRAYSCALE)
+    
+                mask = mask != 0
+                yx = torch.from_numpy(np.argwhere(mask))
+    
+                y = yx[:,0]
+                x = yx[:,1]
+                x_cen = x.float().mean()
+                x_cen += int(np.random.randn() * TrainingNNConfig.width/2)
+                
+                x_start = int(min(max(0, x_cen - TrainingNNConfig.width/2), img.shape[2]-TrainingNNConfig.width))
+    
+                x_end = x_start + TrainingNNConfig.width
+    
+                img = img[:,:,x_start:x_end]
+            else:
+    
+                x_start = int(np.random.rand() * (img.shape[2]-TrainingNNConfig.width))
+                x_end = int(x_start + TrainingNNConfig.width)
+                img = img[:,:,x_start:x_end]
+                # print(2, img.shape)
+                
             
             
         
@@ -154,7 +168,7 @@ def get_valid_transforms(
     W=TrainingNNConfig.width
 ):
     return A.Compose([
-        A.RandomCrop(H, W, pad_if_needed=True),
+        # A.RandomCrop(H, W, pad_if_needed=True),
         A.Normalize(mean=(0.485,0.456,0.406), std=(0.229,0.224,0.225)),
         ToTensorV2(),
     ])

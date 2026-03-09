@@ -2,7 +2,7 @@ from tqdm import tqdm
 import torch
 import numpy as np
 
-from loopr.config.training_nn import TrainingNNConfig
+from loopr.config.training_unet import TrainingUnetConfig
 from loopr.losses.dice import dice_coefficient, dice_per_class
 
 
@@ -58,7 +58,7 @@ class EarlyStopping:
 
 
 def fit(model, train_loader, val_loader, optimizer, scheduler, criterion, device,
-        num_epochs=TrainingNNConfig.epochs, early_stopping_patience=5, save_path=TrainingNNConfig.pretrained_path):
+        num_epochs=TrainingUnetConfig.epochs, early_stopping_patience=5, save_path=TrainingUnetConfig.pretrained_path):
     early_stopping = EarlyStopping(patience=early_stopping_patience, mode="max")
     best_dice = -1.0
 
@@ -152,7 +152,7 @@ class EarlyStopping:
 
 
 def fit(model, train_loader, val_loader, optimizer, scheduler, criterion, device,
-        num_epochs=TrainingNNConfig.epochs, early_stopping_patience=TrainingNNConfig.early_stopping_patience, save_path=TrainingNNConfig.pretrained_path):
+        num_epochs=TrainingUnetConfig.epochs, early_stopping_patience=TrainingUnetConfig.early_stopping_patience, save_path=TrainingUnetConfig.pretrained_path):
     early_stopping = EarlyStopping(patience=early_stopping_patience, mode="max")
     best_dice = -1.0
 

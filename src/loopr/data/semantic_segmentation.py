@@ -7,17 +7,20 @@ from collections import defaultdict
 import numpy as np
 import cv2
 import torch
+import random
 
-from loopr.config.training_nn import TrainingNNConfig
+
+
+from loopr.config.training_unet import TrainingUnetConfig
 
 
 class SemanticSegmentationDataset(Dataset):
-    def __init__(self, transforms=None, training=True, val_split=TrainingNNConfig.train_split, load_rgb=True, censor_class: dict = dict()):
-        data_dir = TrainingNNConfig.data_dir
+    def __init__(self, transforms=None, training=True, val_split=TrainingUnetConfig.train_split, load_rgb=True, censor_class: dict = dict()):
+        data_dir = TrainingUnetConfig.data_dir
         defect_image_dir = data_dir / "Defect_images"
         mask_image_dir = data_dir / "Mask_images"
         no_defect_image_dir = data_dir / "NODefect_images"
-        self.all_classes = ["none"]+TrainingNNConfig.kept_classes
+        self.all_classes = ["none"]+TrainingUnetConfig.kept_classes
         self.defect_dir = defect_image_dir
         self.no_defect_dir = no_defect_image_dir
         self.mask_dir = mask_image_dir
@@ -25,7 +28,7 @@ class SemanticSegmentationDataset(Dataset):
         self.num_classes = len(self.all_classes)
         self.load_rgb = load_rgb
         
-        all_files = [path for path in self.defect_dir.glob("**/*.png") if int(path.name.split("_")[1]) in TrainingNNConfig.kept_classes]
+        all_files = [path for path in self.defect_dir.glob("**/*.png") if int(path.name.split("_")[1]) in TrainingUnetConfig.kept_classes]
         self.files= all_files
         
         # Make sure all files have masks
@@ -34,14 +37,14 @@ class SemanticSegmentationDataset(Dataset):
         self.files = [file for file in self.files if self.file_has_mask_file(file)]
 
 
-        self.file_is_kept_class = lambda image_file: int(image_file.name.split("_")[1]) in TrainingNNConfig.kept_classes
+        self.file_is_kept_class = lambda image_file: int(image_file.name.split("_")[1]) in TrainingUnetConfig.kept_classes
         self.files = [file for file in self.files if self.file_is_kept_class(file)]
         
         
         # only train/val
         self.part_of_dataset = lambda p: (
-            (float(crc32(p.name.encode()) & 0xffffffff) / 2**32 > 1-val_split and not training) 
-            or (float(crc32(p.name.encode()) & 0xffffffff) / 2**32 <= 1-val_split and training)
+            (float(crc32(p.name.encode()) & 0xffffffff) / 2**32 > val_split and not training) 
+            or (float(crc32(p.name.encode()) & 0xffffffff) / 2**32 <= val_split and training)
         )
         self.files = [file for file in self.files if self.part_of_dataset(file)]
 
@@ -93,19 +96,23 @@ class SemanticSegmentationDataset(Dataset):
 
         
         is_defect = class_ != 0
-        m = np.zeros((shape[0], shape[1], 4), dtype=np.uint8)
+        m = torch.zeros((shape[0], shape[1], 4), dtype=int)
         
         if is_defect:
 
             mask_file = self.file_to_mask_file(image_file)
             mask_img = cv2.imread(str(mask_file), cv2.IMREAD_GRAYSCALE)
+            
             mask_img[mask_img!=0] = 1
+            mask_img = torch.from_numpy(mask_img)
             m[:,:,class_] = mask_img
+            m[:,:,0] = 1-mask_img
             return m
 
 
         
         else:
+            m[:,:,0] = 1
             return m
             
     def __getitem__(self, idx):
@@ -120,21 +127,24 @@ class SemanticSegmentationDataset(Dataset):
             img = torch.from_numpy(img.transpose(2,0,1)).float()
             mask = torch.from_numpy(mask.transpose(2,0,1)).float()
 
-        if self.file_has_mask_file(image_file):
-            mask = cv2.imread(str(self.file_to_mask_file(image_file)), cv2.IMREAD_GRAYSCALE)
-            mask = mask != 0
-            x, y = np.where(mask)
-            x_cen = x.mean()
-            x_cen += int(np.random.randn() * TrainingNNConfig.width/2)
+        sample_choice = random.uniform(0, 1) < 0.9
+        if self.file_has_mask_file(image_file) and sample_choice:
+            # mask = cv2.imread(str(self.file_to_mask_file(image_file)), cv2.IMREAD_GRAYSCALE)
+            # mask = mask != 0
+            cyx = np.argwhere(mask)
+            c,y,x = cyx
+            x_cen = x.float().mean()
+            x_cen += int(np.random.randn() * TrainingUnetConfig.width/4)
             
-            x_start = min(max(0, x_cen - TrainingNNConfig.width/2), img.shape[2]-TrainingNNConfig.width)
-            x_end = x_start + TrainingNNConfig.width
-            img = img[:,:,x_start:x_end]
+            x_start = int(min(max(0, x_cen - TrainingUnetConfig.width/2), img.shape[2]-TrainingUnetConfig.width))
+            x_end = int(x_start + TrainingUnetConfig.width)
+            img = img[:,:,x_start:x_end].float()
+            mask = mask[:,:,x_start:x_end].float()
         else:
-            x, y = np.where(mask)
-            x_start = np.random.randn() * (img.shape[2]-TrainingNNConfig.width)
-            x_end = x_start + TrainingNNConfig.width
-            img = img[:,:,x_start:x_end]
+            x_start = int(np.random.rand() * (img.shape[2]-TrainingUnetConfig.width))
+            x_end = int(x_start + TrainingUnetConfig.width)
+            img = img[:,:,x_start:x_end].float()
+            mask = mask[:,:,x_start:x_end].float()
             
         
         meta = {"image_id": idx}
@@ -147,23 +157,23 @@ def collate_fn(batch):
     classes = torch.stack(classes)
     return images, classes, metas
     
-def get_train_transforms(H=TrainingNNConfig.height, W=TrainingNNConfig.width):
+def get_train_transforms(H=TrainingUnetConfig.height, W=TrainingUnetConfig.width):
     return A.Compose([
         # A.HorizontalFlip(p=0.5),
         # A.Affine(scale=(0.9,1.1), translate_percent=(0.02,0.02), rotate=(-1,1), p=0.5),
-        # A.GaussianBlur(blur_limit=(3, 7), p=0.2),
-        A.RandomBrightnessContrast(p=0.4),
-        A.RandomCrop(
-            H,
-            W,
-        ),
+        A.GaussianBlur(blur_limit=(3, 7), p=0.2),
+        # A.RandomBrightnessContrast(p=0.4),
+        # A.RandomCrop(
+        #     H,
+        #     W,
+        # ),
         A.Normalize(mean=(0.485,0.456,0.406), std=(0.229,0.224,0.225)),
         ToTensorV2(),
     ], is_check_shapes=False)
 
-def get_valid_transforms(H=TrainingNNConfig.height, W=TrainingNNConfig.width):
+def get_valid_transforms(H=TrainingUnetConfig.height, W=TrainingUnetConfig.width):
     return A.Compose([
-        A.RandomCrop(H, W, pad_if_needed=True),
+        # A.RandomCrop(H, W, pad_if_needed=True),
         A.Normalize(mean=(0.485,0.456,0.406), std=(0.229,0.224,0.225)),
         ToTensorV2(),
     ])

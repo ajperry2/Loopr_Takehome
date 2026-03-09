@@ -13,6 +13,7 @@ RUN mkdir -p /app/src
 WORKDIR /app
 COPY ./best_mlp.pth /app
 COPY ./best_model.pth /app
+COPY ./centroids.pth /app
 COPY ./pyproject.toml /app
 COPY ./src /app/src
 

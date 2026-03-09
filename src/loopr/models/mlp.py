@@ -14,7 +14,7 @@ def create_mlp(path: Optional[Path] = None, gpu=False):
     else:
         mlp = torchvision.ops.MLP(
             in_channels=32768, 
-            hidden_channels=[128, 4], 
+            hidden_channels=[16, 4], 
             activation_layer=torch.nn.modules.activation.ReLU, 
             bias= True, dropout= 0.0)
     if gpu:
